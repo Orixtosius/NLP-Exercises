@@ -1,0 +1,875 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "name": "Seq2sec",
+      "provenance": [],
+      "collapsed_sections": [],
+      "mount_file_id": "197DYEEt-qFHZ-f1SYXbbxjVeFYz5mX0g",
+      "authorship_tag": "ABX9TyOeM8W43WD+gzG9aEsNkHUP"
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "code",
+      "source": [
+        "!wget https://www.manythings.org/anki/tur-eng.zip"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "bwNkP25dC8LG",
+        "outputId": "9a9fbf3f-3353-42ce-f2b8-9d76d7a19daf"
+      },
+      "execution_count": 1,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "--2022-08-10 13:10:29--  https://www.manythings.org/anki/tur-eng.zip\n",
+            "Resolving www.manythings.org (www.manythings.org)... 173.254.30.110\n",
+            "Connecting to www.manythings.org (www.manythings.org)|173.254.30.110|:443... connected.\n",
+            "HTTP request sent, awaiting response... 200 OK\n",
+            "Length: 5320370 (5.1M) [application/zip]\n",
+            "Saving to: ‘tur-eng.zip’\n",
+            "\n",
+            "tur-eng.zip         100%[===================>]   5.07M  8.89MB/s    in 0.6s    \n",
+            "\n",
+            "2022-08-10 13:10:30 (8.89 MB/s) - ‘tur-eng.zip’ saved [5320370/5320370]\n",
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "!unzip tur-eng.zip"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "tbFk4NCPDYw3",
+        "outputId": "c0e2a03a-775c-4125-8d70-4c11d8c5f39a"
+      },
+      "execution_count": 2,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Archive:  tur-eng.zip\n",
+            "  inflating: tur.txt                 \n",
+            "  inflating: _about.txt              \n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os\n",
+        "import sys\n",
+        "import numpy as np\n",
+        "import pandas as pd\n",
+        "import matplotlib.pyplot as plt\n",
+        "from keras.preprocessing.text import Tokenizer\n",
+        "from keras.preprocessing.sequence import pad_sequences\n",
+        "from keras.layers import Input, Dense, LSTM, Embedding\n",
+        "from keras.models import Model"
+      ],
+      "metadata": {
+        "id": "gEvwOZ6RDT5-"
+      },
+      "execution_count": 3,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "MAX_SEQUENCE_LEN = 100\n",
+        "MAX_VOCAB_SIZE = 20000\n",
+        "EMBEDDING_DIM = 100\n",
+        "VALIDATION_SPLIT = 0.2\n",
+        "BATCH_SIZE = 64\n",
+        "EPOCHS = 40\n",
+        "NUM_SAMPLES = 10000\n",
+        "LATENT_DIM = 256"
+      ],
+      "metadata": {
+        "id": "rXQzpMbmEC_y"
+      },
+      "execution_count": 4,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "input_txts = []\n",
+        "target_txts = []\n",
+        "target_txt_inputs = []\n",
+        "target_full_txts = []"
+      ],
+      "metadata": {
+        "id": "CHkgXrK4ERmJ"
+      },
+      "execution_count": 5,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "counter = 0\n",
+        "for line in open('/content/tur.txt'):\n",
+        "  counter+=1\n",
+        "  if counter > NUM_SAMPLES:\n",
+        "    break\n",
+        "  if '\\t' not in line:\n",
+        "    continue\n",
+        "  input_txt, translation, _ = line.rstrip().split('\\t')\n",
+        "  target_txt = translation + ' <eos>'\n",
+        "  target_txt_input = '<sos> ' + translation\n",
+        "  target_full_txt = '<sos> ' + translation + ' <eos>' \n",
+        "\n",
+        "  input_txts.append(input_txt)\n",
+        "  target_txts.append(target_txt)\n",
+        "  target_txt_inputs.append(target_txt_input)\n",
+        "  target_full_txts.append( target_full_txt )"
+      ],
+      "metadata": {
+        "id": "tr3s5F-oDizY"
+      },
+      "execution_count": 6,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "print(f'Lets compare what we have in arrays')\n",
+        "print(f'Original :\\n{ input_txts[:10]}, \\nTranslated with start token: \\n{target_txts[:10]} \\nwith end token : \\n{target_txt_inputs[:10]}')"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "GRAY96KNJCsI",
+        "outputId": "b1fdc584-4574-4f24-b3c2-7dca1e28833e"
+      },
+      "execution_count": 7,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Lets compare what we have in arrays\n",
+            "Original :\n",
+            "['Hi.', 'Run!', 'Run!', 'Run.', 'Run.', 'Who?', 'Wow!', 'Duck!', 'Fire!', 'Fire!'], \n",
+            "Translated with start token: \n",
+            "['Merhaba. <eos>', 'Kaç! <eos>', 'Koş! <eos>', 'Kaç! <eos>', 'Koş! <eos>', 'Kim? <eos>', 'Vay canına! <eos>', 'Ördek! <eos>', 'Ateş! <eos>', 'Yangın! <eos>'] \n",
+            "with end token : \n",
+            "['<sos> Merhaba.', '<sos> Kaç!', '<sos> Koş!', '<sos> Kaç!', '<sos> Koş!', '<sos> Kim?', '<sos> Vay canına!', '<sos> Ördek!', '<sos> Ateş!', '<sos> Yangın!']\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "tokenizer_input = Tokenizer(num_words = MAX_VOCAB_SIZE)\n",
+        "tokenizer_input.fit_on_texts(input_txts)\n",
+        "seq_input = tokenizer_input.texts_to_sequences(input_txts)"
+      ],
+      "metadata": {
+        "id": "22X0PdaQJYnP"
+      },
+      "execution_count": 8,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "word2idx_input = tokenizer_input.word_index\n",
+        "max_len_for_input = max(len(s) for s in seq_input)\n",
+        "print(f'Lenght {max_len_for_input} - word2idx : { len(word2idx_input) }')"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "zSE1agLwKT9_",
+        "outputId": "33b49554-4b59-440c-81e8-a1e8f8b5bf17"
+      },
+      "execution_count": 9,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Lenght 6 - word2idx : 3047\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "FIRST TRY WITH Start and end token added separetely for fit_on_texts"
+      ],
+      "metadata": {
+        "id": "Q3EYqWMYNCLN"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "tokenizer_outputs = Tokenizer(num_words=MAX_VOCAB_SIZE, filters='')\n",
+        "tokenizer_outputs.fit_on_texts(target_txts + target_txt_inputs)\n",
+        "target_sequences = tokenizer_outputs.texts_to_sequences(target_txts)\n",
+        "target_sequences_inputs = tokenizer_outputs.texts_to_sequences(target_txt_inputs)"
+      ],
+      "metadata": {
+        "id": "xeoW6d6zKaAq"
+      },
+      "execution_count": 72,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "SECOND TRY: Start and end token added simultaneously for fit_on_texts"
+      ],
+      "metadata": {
+        "id": "yoS3CfYFNOGV"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "tokenizer_output = Tokenizer(num_words = MAX_VOCAB_SIZE, filters='')\n",
+        "tokenizer_output.fit_on_texts( target_full_txts )\n",
+        "seq_target = tokenizer_output.texts_to_sequences(target_txts)\n",
+        "seq_target_input = tokenizer_output.texts_to_sequences(target_txt_inputs)"
+      ],
+      "metadata": {
+        "id": "dzKUZq7QNZxy"
+      },
+      "execution_count": 15,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "word2idx_output = tokenizer_output.word_index"
+      ],
+      "metadata": {
+        "id": "Z4faRAuv1um7"
+      },
+      "execution_count": 16,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "num_words_output = len(word2idx_output) + 1\n",
+        "max_len_for_output = max(len(s) for s in seq_target)\n",
+        "print(f'Lenght {max_len_for_output} - word2idx : { len(word2idx_output) }')"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "TyDS344yNeoX",
+        "outputId": "2f64c3d7-06f9-4c01-d193-f9ea2db81120"
+      },
+      "execution_count": 17,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Lenght 9 - word2idx : 8089\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "encoder_inputs = pad_sequences(seq_input, maxlen = max_len_for_input)\n",
+        "decoder_inputs = pad_sequences(seq_target_input, maxlen = max_len_for_output, padding = 'post')\n",
+        "decoder_targets = pad_sequences(seq_target, maxlen = max_len_for_output, padding = 'post')\n",
+        "print(f'Comparison of shapes ec : {encoder_inputs.shape} - de : {decoder_inputs.shape} - det : {decoder_targets.shape}')\n",
+        "\n",
+        "print(\"encoder_inputs.shape:\", encoder_inputs.shape)\n",
+        "print(\"encoder_inputs[0]:\", encoder_inputs[0])\n",
+        "\n",
+        "print(\"decoder_inputs[0]:\", decoder_inputs[0])\n",
+        "print(\"decoder_inputs.shape:\", decoder_inputs.shape)"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "Q8W50OMFv1yP",
+        "outputId": "a44ea26f-e3e3-4847-d7ed-1ed61db40b20"
+      },
+      "execution_count": 18,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Comparison of shapes ec : (10000, 6) - de : (10000, 9) - det : (10000, 9)\n",
+            "encoder_inputs.shape: (10000, 6)\n",
+            "encoder_inputs[0]: [  0   0   0   0   0 543]\n",
+            "decoder_inputs[0]: [   1 1064    0    0    0    0    0    0    0]\n",
+            "decoder_inputs.shape: (10000, 9)\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "word2vec = dict()\n",
+        "with open(f'/content/drive/MyDrive/Colab Exercises/glove.6B.{EMBEDDING_DIM}d.txt') as f:\n",
+        "  for line in f:\n",
+        "    values = line.split()\n",
+        "    word = values[0]\n",
+        "    vec = np.asarray(values[1:], dtype=np.float32)\n",
+        "    word2vec[word] = vec\n",
+        "print(f'Found {len(word2vec)} word in the document')"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "23NaxQxlP5G6",
+        "outputId": "f8352b49-05da-4e77-dfa0-3d2097669343"
+      },
+      "execution_count": 19,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Found 400000 word in the document\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "print('Filling pre-trained embeddings...')\n",
+        "num_words = min(MAX_VOCAB_SIZE, len(word2idx_input) + 1)\n",
+        "embedding_matrix = np.zeros((num_words, EMBEDDING_DIM))\n",
+        "for word, i in word2idx_input.items():\n",
+        "  if i < MAX_VOCAB_SIZE:\n",
+        "    embedding_vector = word2vec.get(word)\n",
+        "    if embedding_vector is not None:\n",
+        "      embedding_matrix[i] = embedding_vector\n",
+        "\n",
+        "\n",
+        "embedding_layer = Embedding(\n",
+        "  num_words,\n",
+        "  EMBEDDING_DIM,\n",
+        "  weights=[embedding_matrix],\n",
+        "  input_length=max_len_for_input,\n",
+        "  trainable=True\n",
+        ")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "nifAsc3rPahV",
+        "outputId": "9e4aedcb-f862-4172-e26c-359ff941240a"
+      },
+      "execution_count": 20,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Filling pre-trained embeddings...\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "decoder_targets_one_hot = np.zeros(\n",
+        "  ( len(input_txts), max_len_for_output, num_words_output\n",
+        "  ), dtype=np.float32\n",
+        ")\n",
+        "\n",
+        "for i, d in enumerate(decoder_targets):\n",
+        "  for t, word in enumerate(d):\n",
+        "    if word != 0:\n",
+        "      decoder_targets_one_hot[i, t, word] = 1"
+      ],
+      "metadata": {
+        "id": "ypxCJ6nWa7f_"
+      },
+      "execution_count": 21,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "decoder_targets_one_hot.shape"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "kYKcAJ33jNvW",
+        "outputId": "b9e8ee48-74c4-4074-a26b-00e33b45fcb1"
+      },
+      "execution_count": 22,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "(10000, 9, 8090)"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 22
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "encoder_inputs_placeholder = Input(shape=(max_len_for_input,))\n",
+        "x = embedding_layer(encoder_inputs_placeholder)\n",
+        "encoder = LSTM(\n",
+        "  LATENT_DIM,\n",
+        "  return_state=True,\n",
+        "  dropout=0.5\n",
+        ")\n",
+        "encoder_outputs, h, c = encoder(x)\n",
+        "encoder_states = [h, c]"
+      ],
+      "metadata": {
+        "id": "6ARLa_TJbZaA"
+      },
+      "execution_count": 23,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "decoder_inputs_placeholder = Input(shape=(max_len_for_output,))\n",
+        "decoder_embedding = Embedding(num_words_output, EMBEDDING_DIM)\n",
+        "decoder_inputs_x = decoder_embedding(decoder_inputs_placeholder)\n",
+        "\n",
+        "decoder_lstm = LSTM(\n",
+        "  LATENT_DIM,\n",
+        "  return_sequences=True,\n",
+        "  return_state=True,\n",
+        ")\n",
+        "decoder_outputs, *rest = decoder_lstm(\n",
+        "  decoder_inputs_x,\n",
+        "  initial_state=encoder_states\n",
+        ")\n",
+        "\n",
+        "decoder_dense = Dense(num_words_output, activation='softmax')\n",
+        "decoder_outputs = decoder_dense(decoder_outputs)"
+      ],
+      "metadata": {
+        "id": "LgJATPeDb7CB"
+      },
+      "execution_count": 24,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model = Model([encoder_inputs_placeholder, decoder_inputs_placeholder], decoder_outputs)\n",
+        "model.summary()"
+      ],
+      "metadata": {
+        "id": "djBasmKYlte8",
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "outputId": "60128ae4-3167-42f4-98bb-0aba9d13f48d"
+      },
+      "execution_count": 25,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Model: \"model\"\n",
+            "__________________________________________________________________________________________________\n",
+            " Layer (type)                   Output Shape         Param #     Connected to                     \n",
+            "==================================================================================================\n",
+            " input_1 (InputLayer)           [(None, 6)]          0           []                               \n",
+            "                                                                                                  \n",
+            " input_2 (InputLayer)           [(None, 9)]          0           []                               \n",
+            "                                                                                                  \n",
+            " embedding (Embedding)          (None, 6, 100)       304800      ['input_1[0][0]']                \n",
+            "                                                                                                  \n",
+            " embedding_1 (Embedding)        (None, 9, 100)       809000      ['input_2[0][0]']                \n",
+            "                                                                                                  \n",
+            " lstm (LSTM)                    [(None, 256),        365568      ['embedding[0][0]']              \n",
+            "                                 (None, 256),                                                     \n",
+            "                                 (None, 256)]                                                     \n",
+            "                                                                                                  \n",
+            " lstm_1 (LSTM)                  [(None, 9, 256),     365568      ['embedding_1[0][0]',            \n",
+            "                                 (None, 256),                     'lstm[0][1]',                   \n",
+            "                                 (None, 256)]                     'lstm[0][2]']                   \n",
+            "                                                                                                  \n",
+            " dense (Dense)                  (None, 9, 8090)      2079130     ['lstm_1[0][0]']                 \n",
+            "                                                                                                  \n",
+            "==================================================================================================\n",
+            "Total params: 3,924,066\n",
+            "Trainable params: 3,924,066\n",
+            "Non-trainable params: 0\n",
+            "__________________________________________________________________________________________________\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['accuracy'])"
+      ],
+      "metadata": {
+        "id": "SKTo1JXopbb0"
+      },
+      "execution_count": 26,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "r = model.fit(\n",
+        "  [encoder_inputs, decoder_inputs], decoder_targets_one_hot,\n",
+        "  batch_size=BATCH_SIZE,\n",
+        "  epochs=EPOCHS,\n",
+        "  validation_split=VALIDATION_SPLIT,\n",
+        ")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "ICoelqbZqJJ6",
+        "outputId": "8a27c06b-033b-437b-e17d-ff14738ac60f"
+      },
+      "execution_count": 27,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Epoch 1/40\n",
+            "125/125 [==============================] - 44s 320ms/step - loss: 2.7134 - accuracy: 0.1113 - val_loss: 2.9493 - val_accuracy: 0.1342\n",
+            "Epoch 2/40\n",
+            "125/125 [==============================] - 39s 314ms/step - loss: 2.4555 - accuracy: 0.1246 - val_loss: 2.9441 - val_accuracy: 0.1344\n",
+            "Epoch 3/40\n",
+            "125/125 [==============================] - 41s 325ms/step - loss: 2.4059 - accuracy: 0.1265 - val_loss: 2.9368 - val_accuracy: 0.1388\n",
+            "Epoch 4/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 2.3620 - accuracy: 0.1346 - val_loss: 2.9192 - val_accuracy: 0.1440\n",
+            "Epoch 5/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 2.3218 - accuracy: 0.1398 - val_loss: 2.9088 - val_accuracy: 0.1442\n",
+            "Epoch 6/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 2.2882 - accuracy: 0.1413 - val_loss: 2.8989 - val_accuracy: 0.1461\n",
+            "Epoch 7/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 2.2565 - accuracy: 0.1432 - val_loss: 2.8951 - val_accuracy: 0.1506\n",
+            "Epoch 8/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 2.2243 - accuracy: 0.1449 - val_loss: 2.8868 - val_accuracy: 0.1501\n",
+            "Epoch 9/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 2.1915 - accuracy: 0.1468 - val_loss: 2.8869 - val_accuracy: 0.1510\n",
+            "Epoch 10/40\n",
+            "125/125 [==============================] - 39s 310ms/step - loss: 2.1592 - accuracy: 0.1481 - val_loss: 2.8873 - val_accuracy: 0.1539\n",
+            "Epoch 11/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 2.1283 - accuracy: 0.1503 - val_loss: 2.8831 - val_accuracy: 0.1569\n",
+            "Epoch 12/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 2.0952 - accuracy: 0.1520 - val_loss: 2.8743 - val_accuracy: 0.1571\n",
+            "Epoch 13/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 2.0612 - accuracy: 0.1546 - val_loss: 2.8836 - val_accuracy: 0.1571\n",
+            "Epoch 14/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 2.0246 - accuracy: 0.1562 - val_loss: 2.8529 - val_accuracy: 0.1599\n",
+            "Epoch 15/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 1.9569 - accuracy: 0.1584 - val_loss: 2.8277 - val_accuracy: 0.1646\n",
+            "Epoch 16/40\n",
+            "125/125 [==============================] - 39s 311ms/step - loss: 1.9066 - accuracy: 0.1598 - val_loss: 2.8287 - val_accuracy: 0.1645\n",
+            "Epoch 17/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 1.8574 - accuracy: 0.1621 - val_loss: 2.8090 - val_accuracy: 0.1658\n",
+            "Epoch 18/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 1.7996 - accuracy: 0.1638 - val_loss: 2.7891 - val_accuracy: 0.1663\n",
+            "Epoch 19/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 1.7305 - accuracy: 0.1660 - val_loss: 2.7375 - val_accuracy: 0.1680\n",
+            "Epoch 20/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 1.6338 - accuracy: 0.1686 - val_loss: 2.6603 - val_accuracy: 0.1691\n",
+            "Epoch 21/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 1.5470 - accuracy: 0.1727 - val_loss: 2.6545 - val_accuracy: 0.1711\n",
+            "Epoch 22/40\n",
+            "125/125 [==============================] - 39s 315ms/step - loss: 1.4668 - accuracy: 0.1762 - val_loss: 2.6181 - val_accuracy: 0.1735\n",
+            "Epoch 23/40\n",
+            "125/125 [==============================] - 39s 316ms/step - loss: 1.3904 - accuracy: 0.1802 - val_loss: 2.6170 - val_accuracy: 0.1752\n",
+            "Epoch 24/40\n",
+            "125/125 [==============================] - 40s 318ms/step - loss: 1.3252 - accuracy: 0.1855 - val_loss: 2.6068 - val_accuracy: 0.1772\n",
+            "Epoch 25/40\n",
+            "125/125 [==============================] - 40s 318ms/step - loss: 1.2669 - accuracy: 0.1894 - val_loss: 2.6323 - val_accuracy: 0.1774\n",
+            "Epoch 26/40\n",
+            "125/125 [==============================] - 39s 314ms/step - loss: 1.2132 - accuracy: 0.1937 - val_loss: 2.6397 - val_accuracy: 0.1794\n",
+            "Epoch 27/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 1.1604 - accuracy: 0.1977 - val_loss: 2.6617 - val_accuracy: 0.1799\n",
+            "Epoch 28/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 1.1081 - accuracy: 0.2032 - val_loss: 2.6793 - val_accuracy: 0.1791\n",
+            "Epoch 29/40\n",
+            "125/125 [==============================] - 39s 314ms/step - loss: 1.0591 - accuracy: 0.2075 - val_loss: 2.7002 - val_accuracy: 0.1833\n",
+            "Epoch 30/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 1.0096 - accuracy: 0.2142 - val_loss: 2.7233 - val_accuracy: 0.1836\n",
+            "Epoch 31/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 0.9595 - accuracy: 0.2211 - val_loss: 2.7397 - val_accuracy: 0.1847\n",
+            "Epoch 32/40\n",
+            "125/125 [==============================] - 40s 317ms/step - loss: 0.9127 - accuracy: 0.2272 - val_loss: 2.7931 - val_accuracy: 0.1852\n",
+            "Epoch 33/40\n",
+            "125/125 [==============================] - 40s 318ms/step - loss: 0.8647 - accuracy: 0.2343 - val_loss: 2.8190 - val_accuracy: 0.1869\n",
+            "Epoch 34/40\n",
+            "125/125 [==============================] - 40s 318ms/step - loss: 0.8202 - accuracy: 0.2424 - val_loss: 2.8589 - val_accuracy: 0.1878\n",
+            "Epoch 35/40\n",
+            "125/125 [==============================] - 39s 315ms/step - loss: 0.7769 - accuracy: 0.2504 - val_loss: 2.9088 - val_accuracy: 0.1865\n",
+            "Epoch 36/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 0.7384 - accuracy: 0.2563 - val_loss: 2.9760 - val_accuracy: 0.1866\n",
+            "Epoch 37/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 0.6974 - accuracy: 0.2640 - val_loss: 3.0000 - val_accuracy: 0.1890\n",
+            "Epoch 38/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 0.6610 - accuracy: 0.2716 - val_loss: 3.0499 - val_accuracy: 0.1905\n",
+            "Epoch 39/40\n",
+            "125/125 [==============================] - 39s 313ms/step - loss: 0.6243 - accuracy: 0.2780 - val_loss: 3.1148 - val_accuracy: 0.1899\n",
+            "Epoch 40/40\n",
+            "125/125 [==============================] - 39s 312ms/step - loss: 0.5908 - accuracy: 0.2837 - val_loss: 3.1424 - val_accuracy: 0.1914\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "plt.plot(r.history['loss'], label = 'training loss')\n",
+        "plt.plot(r.history['val_loss'], label = 'validation loss')\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 265
+        },
+        "id": "XWb903BPqhEz",
+        "outputId": "9b7bccf4-2256-47ce-ee4b-56d55df3ffdc"
+      },
+      "execution_count": 28,
+      "outputs": [
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<Figure size 432x288 with 1 Axes>"
+            ],
+            "image/png": "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\n"
+          },
+          "metadata": {
+            "needs_background": "light"
+          }
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "encoder_model = Model(encoder_inputs_placeholder, encoder_states)\n",
+        "\n",
+        "decoder_state_input_h = Input(shape=(LATENT_DIM,))\n",
+        "decoder_state_input_c = Input(shape=(LATENT_DIM,))\n",
+        "decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]\n",
+        "\n",
+        "decoder_inputs_single = Input(shape=(1,))\n",
+        "decoder_inputs_single_x = decoder_embedding(decoder_inputs_single)\n",
+        "\n",
+        "decoder_outputs, h, c = decoder_lstm(\n",
+        "  decoder_inputs_single_x,\n",
+        "  initial_state=decoder_states_inputs\n",
+        ")\n",
+        "\n",
+        "decoder_states = [h, c]\n",
+        "decoder_outputs = decoder_dense(decoder_outputs)\n",
+        "\n",
+        "decoder_model = Model(\n",
+        "  [decoder_inputs_single] + decoder_states_inputs, \n",
+        "  [decoder_outputs] + decoder_states\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "3vO9XJHEf2ly"
+      },
+      "execution_count": 29,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "idx2word_eng = {v:k for k, v in word2idx_input.items()}\n",
+        "idx2word_tur = {v:k for k, v in word2idx_output.items()}"
+      ],
+      "metadata": {
+        "id": "uZxPdDqVgHQ0"
+      },
+      "execution_count": 30,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "decoder_model.summary()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "6XrTaBRogoz6",
+        "outputId": "0cc4937a-f083-4596-9caf-26de10b0ded0"
+      },
+      "execution_count": 31,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Model: \"model_2\"\n",
+            "__________________________________________________________________________________________________\n",
+            " Layer (type)                   Output Shape         Param #     Connected to                     \n",
+            "==================================================================================================\n",
+            " input_5 (InputLayer)           [(None, 1)]          0           []                               \n",
+            "                                                                                                  \n",
+            " embedding_1 (Embedding)        multiple             809000      ['input_5[0][0]']                \n",
+            "                                                                                                  \n",
+            " input_3 (InputLayer)           [(None, 256)]        0           []                               \n",
+            "                                                                                                  \n",
+            " input_4 (InputLayer)           [(None, 256)]        0           []                               \n",
+            "                                                                                                  \n",
+            " lstm_1 (LSTM)                  multiple             365568      ['embedding_1[1][0]',            \n",
+            "                                                                  'input_3[0][0]',                \n",
+            "                                                                  'input_4[0][0]']                \n",
+            "                                                                                                  \n",
+            " dense (Dense)                  multiple             2079130     ['lstm_1[1][0]']                 \n",
+            "                                                                                                  \n",
+            "==================================================================================================\n",
+            "Total params: 3,253,698\n",
+            "Trainable params: 3,253,698\n",
+            "Non-trainable params: 0\n",
+            "__________________________________________________________________________________________________\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "def decode_sequence(seq_in, print_results = False):\n",
+        "  states_value = encoder_model.predict(seq_in)\n",
+        "  target_seq = np.zeros((1, 1))\n",
+        "  target_seq[0, 0] = word2idx_output['<sos>']\n",
+        "  eos = word2idx_output['<eos>']\n",
+        "  if print_results:\n",
+        "    print(f'Target sequence is {target_seq}')\n",
+        "\n",
+        "  output_sentence = []\n",
+        "  for _ in range(max_len_for_output):\n",
+        "    output_tokens, h, c = decoder_model.predict( [target_seq] + states_value)\n",
+        "    idx = np.argmax(output_tokens[0,0,:])\n",
+        "    if eos == idx:\n",
+        "      break\n",
+        "    word = ''\n",
+        "    if idx > 0:\n",
+        "      word = idx2word_tur[idx]\n",
+        "      output_sentence.append(word)\n",
+        "    target_seq[0,0] = idx\n",
+        "    states_value = [h,c]\n",
+        "    if print_results:\n",
+        "      print(f\"Output token shape is {output_tokens.shape} \")\n",
+        "      print(f'Chosen word is {word}')\n",
+        "\n",
+        "  return ' '.join(output_sentence)\n"
+      ],
+      "metadata": {
+        "id": "IXCoUiLX16DQ"
+      },
+      "execution_count": 32,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "while True:\n",
+        "  i = np.random.choice(len(input_txts))\n",
+        "  input_seq = encoder_inputs[i:i+1]\n",
+        "  translation = decode_sequence(input_seq)\n",
+        "  print('-')\n",
+        "  print(f'Input       : {input_txts[i]}')\n",
+        "  print(f'Translation : {translation}')\n",
+        "\n",
+        "  if input('Do you want to continue ?(Yes/No)\\n') == 'No':\n",
+        "    break"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "d-dQVXGU3SC6",
+        "outputId": "3c4903ba-9c74-488a-aeb3-45189857a9c2"
+      },
+      "execution_count": 33,
+      "outputs": [
+        {
+          "name": "stdout",
+          "output_type": "stream",
+          "text": [
+            "-\n",
+            "Input       : I made a speech.\n",
+            "Translation : bir konuşma yaptım.\n",
+            "Do you want to continue ?(Yes/No)\n",
+            "Yes\n",
+            "-\n",
+            "Input       : Why do this now?\n",
+            "Translation : bu bunu mu demek istiyorsun?\n",
+            "Do you want to continue ?(Yes/No)\n",
+            "Yes\n",
+            "-\n",
+            "Input       : He found me a taxi.\n",
+            "Translation : bana bir silah var.\n",
+            "Do you want to continue ?(Yes/No)\n",
+            "Yes\n",
+            "-\n",
+            "Input       : That's your gift.\n",
+            "Translation : o senin armağanın.\n",
+            "Do you want to continue ?(Yes/No)\n",
+            "No\n"
+          ]
+        }
+      ]
+    }
+  ]
+}
